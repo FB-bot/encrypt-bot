@@ -6,47 +6,45 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
-    CommandHandler
+    CommandHandler,
 )
 from cryptography.fernet import Fernet
+from threading import Thread
 
-# ========= Flask Server =========
+# ========= Auto Key =========
+cipher = Fernet(Fernet.generate_key())
+
+# ========= Flask =========
 app_web = Flask(__name__)
 
 @app_web.route("/")
 def home():
-    return "Bot is running!"
+    return "Bot Running!"
 
-# ========= Encryption =========
-key = b'YOUR_SAVED_KEY'
-cipher = Fernet(key)
-
+# ========= Telegram =========
 TOKEN = os.environ.get("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Send Python code, I will encrypt it 🔐"
+        "Send Python code. I will encrypt it 🔐"
     )
 
 async def encrypt_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = update.message.text
-    encrypted = cipher.encrypt(code.encode()).decode()
+    text = update.message.text
+    encrypted = cipher.encrypt(text.encode()).decode()
 
     await update.message.reply_text(
         f"🔐 Encrypted Code:\n\n{encrypted}"
     )
 
-telegram_app = ApplicationBuilder().token(TOKEN).build()
+app = ApplicationBuilder().token(TOKEN).build()
 
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, encrypt_code)
-)
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, encrypt_code))
 
 def run_bot():
-    telegram_app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
-    from threading import Thread
     Thread(target=run_bot).start()
     app_web.run(host="0.0.0.0", port=10000)
