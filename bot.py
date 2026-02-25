@@ -24,8 +24,8 @@ from cryptography.fernet import Fernet
 
 # ================= CONFIG =================
 
-TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
+TOKEN = os.environ.get("8710925616:AAG2DYwGuusWMrfQDgcNdwGbKc73SK4DPUk")
+APP_URL = os.environ.get("https://encrypt-bot-1.onrender.com")
 
 # ================= USER SYSTEM =================
 
