@@ -1,148 +1,252 @@
 import os
 import time
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+import base64
+import zlib
+import random
+import string
+from threading import Thread
+from flask import Flask
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+)
+
 from telegram.ext import (
     ApplicationBuilder,
-    MessageHandler,
-    filters,
-    ContextTypes,
     CommandHandler,
+    MessageHandler,
     CallbackQueryHandler,
+    ContextTypes,
+    filters,
 )
+
 from cryptography.fernet import Fernet
-from flask import Flask
-from threading import Thread
+
+
+# ================= CONFIG =================
 
 TOKEN = os.environ.get("BOT_TOKEN")
 
-# ===== keep alive (Render) =====
+# ================= KEEP ALIVE =================
+
 web = Flask(__name__)
 
 @web.route("/")
 def home():
-    return "EncryptXnoob Running"
+    return "EncryptXnoob Running 🔐"
 
-# ===== User Private Keys =====
+
+# ================= USER SYSTEM =================
+
 user_keys = {}
-
-def get_cipher(user_id):
-    if user_id not in user_keys:
-        user_keys[user_id] = Fernet.generate_key()
-    return Fernet(user_keys[user_id])
-
-# ===== Spam Protection =====
+user_mode = {}
 user_time = {}
 
-def anti_spam(user_id):
+def get_cipher(uid):
+    if uid not in user_keys:
+        user_keys[uid] = Fernet.generate_key()
+    return Fernet(user_keys[uid])
+
+
+# ================= ANTI SPAM =================
+
+def anti_spam(uid):
     now = time.time()
-    if user_id in user_time and now - user_time[user_id] < 3:
+    if uid in user_time and now - user_time[uid] < 2:
         return True
-    user_time[user_id] = now
+    user_time[uid] = now
     return False
 
-# ===== Buttons =====
-def menu_buttons():
-    keyboard = [
-        [InlineKeyboardButton("🔐 Encrypt Text", callback_data="encrypt")],
-        [InlineKeyboardButton("📂 Encrypt .py File", callback_data="file")],
-        [InlineKeyboardButton("ℹ️ About", callback_data="about")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
 
-# ===== Start Command =====
+# ================= PROTECTORS =================
+
+def protect_python(code):
+
+    compressed = zlib.compress(code)
+    encoded = base64.b64encode(compressed).decode()
+
+    fake = "".join(random.choice(string.ascii_letters) for _ in range(18))
+
+    protected = f"""
+# EncryptXnoob Protected File
+
+import base64,zlib
+{fake}="{encoded}"
+exec(zlib.decompress(base64.b64decode({fake})))
+"""
+    return protected.encode()
+
+
+def protect_js(code):
+    encoded = base64.b64encode(code).decode()
+    protected = f'eval(atob("{encoded}"));'
+    return protected.encode()
+
+
+# ================= MENU =================
+
+def menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔐 Encrypt", callback_data="encrypt")],
+        [InlineKeyboardButton("🔓 Decrypt", callback_data="decrypt")],
+        [InlineKeyboardButton("🛡 Protect Code", callback_data="protect")],
+        [InlineKeyboardButton("ℹ️ About", callback_data="about")]
+    ])
+
+
+# ================= START =================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.message.from_user.id
+    user_mode[uid] = "encrypt"
+
     await update.message.reply_text(
-        "👋 Welcome to EncryptXnoob\n\n"
-        "Send Python code or .py file to encrypt 🔐",
-        reply_markup=menu_buttons(),
+        "👋 Welcome to EncryptXnoob 🔐\n\n"
+        "Send text or file.\nChoose mode below.",
+        reply_markup=menu()
     )
 
-# ===== Button Actions =====
+
+# ================= BUTTONS =================
+
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
 
-    if query.data == "about":
-        await query.edit_message_text(
-            "EncryptXnoob 🔐\nPrivate Python Encryption Bot"
+    q = update.callback_query
+    uid = q.from_user.id
+    await q.answer()
+
+    if q.data == "encrypt":
+        user_mode[uid] = "encrypt"
+        await q.edit_message_text("🔐 Encrypt Mode Enabled")
+
+    elif q.data == "decrypt":
+        user_mode[uid] = "decrypt"
+        await q.edit_message_text("🔓 Decrypt Mode Enabled")
+
+    elif q.data == "protect":
+        user_mode[uid] = "protect"
+        await q.edit_message_text(
+            "🛡 Protection Mode\nSend .py or .js file"
         )
 
-    elif query.data == "encrypt":
-        await query.edit_message_text(
-            "Send any Python text now."
+    elif q.data == "about":
+        await q.edit_message_text(
+            "EncryptXnoob 🔐\nProfessional Code Protector Bot"
         )
 
-    elif query.data == "file":
-        await query.edit_message_text(
-            "Send .py file to encrypt."
-        )
 
-# ===== Text Encryption =====
-async def encrypt_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
+# ================= TEXT =================
 
-    if anti_spam(user_id):
-        await update.message.reply_text("⏳ Slow down bro...")
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.message.from_user.id
+
+    if anti_spam(uid):
+        await update.message.reply_text("⏳ Slow down...")
         return
 
-    cipher = get_cipher(user_id)
+    cipher = get_cipher(uid)
+    mode = user_mode.get(uid, "encrypt")
 
-    encrypted = cipher.encrypt(update.message.text.encode()).decode()
+    try:
+        if mode == "decrypt":
+            text = cipher.decrypt(update.message.text.encode()).decode()
+            await update.message.reply_text(f"🔓 Decrypted:\n\n{text}")
+        else:
+            enc = cipher.encrypt(update.message.text.encode()).decode()
+            await update.message.reply_text(f"🔐 Encrypted:\n\n{enc}")
 
-    await update.message.reply_text(
-        f"🔐 Encrypted:\n\n{encrypted}"
-    )
+    except:
+        await update.message.reply_text("❌ Failed")
 
-# ===== File Encryption =====
-async def encrypt_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
 
-    if anti_spam(user_id):
-        await update.message.reply_text("⏳ Wait a moment...")
+# ================= FILE =================
+
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.message.from_user.id
+
+    if anti_spam(uid):
+        await update.message.reply_text("⏳ Wait...")
         return
 
-    document = update.message.document
+    doc = update.message.document
+    file = await doc.get_file()
 
-    if not document.file_name.endswith(".py"):
-        await update.message.reply_text("❌ Send only .py file")
-        return
-
-    file = await document.get_file()
-    path = f"{user_id}.py"
-
+    path = doc.file_name
     await file.download_to_drive(path)
-
-    cipher = get_cipher(user_id)
 
     with open(path, "rb") as f:
         data = f.read()
 
-    encrypted = cipher.encrypt(data)
+    mode = user_mode.get(uid, "encrypt")
+    cipher = get_cipher(uid)
 
-    enc_path = f"{user_id}_encrypted.txt"
+    try:
 
-    with open(enc_path, "wb") as f:
-        f.write(encrypted)
+        # ===== PROTECTION MODE =====
+        if mode == "protect":
 
-    await update.message.reply_document(
-        document=InputFile(enc_path),
-        filename="encrypted_code.txt",
-        caption="✅ File Encrypted 🔐",
-    )
+            if path.endswith(".py"):
+                result = protect_python(data)
+                name = "protected.py"
+
+            elif path.endswith(".js"):
+                result = protect_js(data)
+                name = "protected.js"
+
+            else:
+                await update.message.reply_text("Only .py or .js allowed")
+                return
+
+        # ===== DECRYPT =====
+        elif mode == "decrypt":
+            result = cipher.decrypt(data)
+            name = "decrypted.py"
+
+        # ===== ENCRYPT =====
+        else:
+            result = cipher.encrypt(data)
+            name = "encrypted.txt"
+
+        out = f"{uid}_out"
+
+        with open(out, "wb") as f:
+            f.write(result)
+
+        await update.message.reply_document(
+            document=InputFile(out),
+            filename=name,
+            caption="✅ Done"
+        )
+
+        os.remove(out)
+
+    except:
+        await update.message.reply_text("❌ Operation failed")
 
     os.remove(path)
-    os.remove(enc_path)
 
-# ===== Telegram Setup =====
+
+# ================= TELEGRAM =================
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(buttons))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, encrypt_text))
-app.add_handler(MessageHandler(filters.Document.ALL, encrypt_file))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+
 
 def run_bot():
     app.run_polling()
+
+
+# ================= RUN =================
 
 if __name__ == "__main__":
     Thread(target=run_bot).start()
