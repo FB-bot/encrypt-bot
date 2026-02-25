@@ -4,8 +4,6 @@ import base64
 import zlib
 import random
 import string
-from threading import Thread
-from flask import Flask
 
 from telegram import (
     Update,
@@ -30,15 +28,6 @@ from cryptography.fernet import Fernet
 
 TOKEN = os.environ.get("BOT_TOKEN")
 
-# ================= KEEP ALIVE =================
-
-web = Flask(__name__)
-
-@web.route("/")
-def home():
-    return "EncryptXnoob Running 🔐"
-
-
 # ================= USER SYSTEM =================
 
 user_keys = {}
@@ -50,7 +39,6 @@ def get_cipher(uid):
         user_keys[uid] = Fernet.generate_key()
     return Fernet(user_keys[uid])
 
-
 # ================= ANTI SPAM =================
 
 def anti_spam(uid):
@@ -59,7 +47,6 @@ def anti_spam(uid):
         return True
     user_time[uid] = now
     return False
-
 
 # ================= PROTECTORS =================
 
@@ -72,7 +59,6 @@ def protect_python(code):
 
     protected = f"""
 # EncryptXnoob Protected File
-
 import base64,zlib
 {fake}="{encoded}"
 exec(zlib.decompress(base64.b64decode({fake})))
@@ -106,7 +92,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👋 Welcome to EncryptXnoob 🔐\n\n"
-        "Send text or file.\nChoose mode below.",
+        "Choose mode and send text or file.",
         reply_markup=menu()
     )
 
@@ -129,9 +115,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif q.data == "protect":
         user_mode[uid] = "protect"
-        await q.edit_message_text(
-            "🛡 Protection Mode\nSend .py or .js file"
-        )
+        await q.edit_message_text("🛡 Send .py or .js file to protect")
 
     elif q.data == "about":
         await q.edit_message_text(
@@ -161,7 +145,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"🔐 Encrypted:\n\n{enc}")
 
     except:
-        await update.message.reply_text("❌ Failed")
+        await update.message.reply_text("❌ Operation failed")
 
 
 # ================= FILE =================
@@ -188,7 +172,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
-        # ===== PROTECTION MODE =====
         if mode == "protect":
 
             if path.endswith(".py"):
@@ -203,12 +186,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("Only .py or .js allowed")
                 return
 
-        # ===== DECRYPT =====
         elif mode == "decrypt":
             result = cipher.decrypt(data)
             name = "decrypted.py"
 
-        # ===== ENCRYPT =====
         else:
             result = cipher.encrypt(data)
             name = "encrypted.txt"
@@ -227,7 +208,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(out)
 
     except:
-        await update.message.reply_text("❌ Operation failed")
+        await update.message.reply_text("❌ Failed")
 
     os.remove(path)
 
@@ -242,12 +223,8 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
 
-def run_bot():
-    app.run_polling()
-
-
-# ================= RUN =================
+# ================= RUN BOT =================
 
 if __name__ == "__main__":
-    Thread(target=run_bot).start()
-    web.run(host="0.0.0.0", port=10000)
+    print("EncryptXnoob Bot Running...")
+    app.run_polling()
