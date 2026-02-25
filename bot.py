@@ -4,6 +4,9 @@ import base64
 import zlib
 import random
 import string
+import threading
+
+from flask import Flask
 
 from telegram import (
     Update,
@@ -51,10 +54,8 @@ def anti_spam(uid):
 # ================= PROTECTORS =================
 
 def protect_python(code):
-
     compressed = zlib.compress(code)
     encoded = base64.b64encode(compressed).decode()
-
     fake = "".join(random.choice(string.ascii_letters) for _ in range(18))
 
     protected = f"""
@@ -86,21 +87,18 @@ def menu():
 # ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     uid = update.message.from_user.id
     user_mode[uid] = "encrypt"
 
     await update.message.reply_text(
-        "👋 Welcome to EncryptXnoob 🔐\n\n"
-        "Choose mode and send text or file.",
+        "👋 Welcome to EncryptXnoob 🔐\n\nChoose mode and send text or file.",
         reply_markup=menu()
     )
 
 
-# ================= BUTTONS =================
+# ================= BUTTON HANDLER =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     q = update.callback_query
     uid = q.from_user.id
     await q.answer()
@@ -123,7 +121,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ================= TEXT =================
+# ================= TEXT HANDLER =================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -143,12 +141,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             enc = cipher.encrypt(update.message.text.encode()).decode()
             await update.message.reply_text(f"🔐 Encrypted:\n\n{enc}")
-
     except:
         await update.message.reply_text("❌ Operation failed")
 
 
-# ================= FILE =================
+# ================= FILE HANDLER =================
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -184,6 +181,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             else:
                 await update.message.reply_text("Only .py or .js allowed")
+                os.remove(path)
                 return
 
         elif mode == "decrypt":
@@ -213,7 +211,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(path)
 
 
-# ================= TELEGRAM =================
+# ================= TELEGRAM APP =================
 
 app = ApplicationBuilder().token(TOKEN).build()
 
@@ -223,8 +221,24 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
 
-# ================= RUN BOT =================
+# ================= RENDER WEB SERVER =================
 
-if __name__ == "__main__":
+web = Flask(__name__)
+
+@web.route("/")
+def home():
+    return "EncryptXnoob Alive 🔐"
+
+
+def run_bot():
     print("EncryptXnoob Bot Running...")
     app.run_polling()
+
+
+# ================= RUN BOTH =================
+
+if __name__ == "__main__":
+    threading.Thread(target=run_bot).start()
+
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
