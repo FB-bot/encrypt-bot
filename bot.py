@@ -5,7 +5,7 @@ import zlib
 import random
 import string
 import threading
-
+import asyncio
 from flask import Flask
 
 from telegram import (
@@ -42,6 +42,7 @@ def get_cipher(uid):
         user_keys[uid] = Fernet.generate_key()
     return Fernet(user_keys[uid])
 
+
 # ================= ANTI SPAM =================
 
 def anti_spam(uid):
@@ -50,6 +51,7 @@ def anti_spam(uid):
         return True
     user_time[uid] = now
     return False
+
 
 # ================= PROTECTORS =================
 
@@ -96,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ================= BUTTON HANDLER =================
+# ================= BUTTONS =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -121,7 +123,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ================= TEXT HANDLER =================
+# ================= TEXT =================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -145,7 +147,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Operation failed")
 
 
-# ================= FILE HANDLER =================
+# ================= FILE =================
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -221,7 +223,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
 
-# ================= RENDER WEB SERVER =================
+# ================= WEB SERVER (FOR RENDER FREE) =================
 
 web = Flask(__name__)
 
@@ -230,15 +232,19 @@ def home():
     return "EncryptXnoob Alive 🔐"
 
 
-def run_bot():
+# ================= MAIN RUN =================
+
+async def main():
+
+    def run_web():
+        port = int(os.environ.get("PORT", 10000))
+        web.run(host="0.0.0.0", port=port)
+
+    threading.Thread(target=run_web).start()
+
     print("EncryptXnoob Bot Running...")
-    app.run_polling()
+    await app.run_polling()
 
-
-# ================= RUN BOTH =================
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
-
-    port = int(os.environ.get("PORT", 10000))
-    web.run(host="0.0.0.0", port=port)
+    asyncio.run(main())
