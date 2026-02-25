@@ -4,6 +4,7 @@ import base64
 import zlib
 import random
 import string
+from flask import Flask, request
 
 from telegram import (
     Update,
@@ -11,7 +12,6 @@ from telegram import (
     InlineKeyboardMarkup,
     InputFile,
 )
-
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -20,13 +20,12 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-
 from cryptography.fernet import Fernet
-
 
 # ================= CONFIG =================
 
-TOKEN = os.environ.get("8710925616:AAG2DYwGuusWMrfQDgcNdwGbKc73SK4DPUk")
+TOKEN = os.environ.get("BOT_TOKEN")
+APP_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
 # ================= USER SYSTEM =================
 
@@ -39,16 +38,12 @@ def get_cipher(uid):
         user_keys[uid] = Fernet.generate_key()
     return Fernet(user_keys[uid])
 
-
-# ================= ANTI SPAM =================
-
 def anti_spam(uid):
     now = time.time()
     if uid in user_time and now - user_time[uid] < 2:
         return True
     user_time[uid] = now
     return False
-
 
 # ================= PROTECT =================
 
@@ -64,11 +59,9 @@ exec(zlib.decompress(base64.b64decode({fake})))
 """
     return protected.encode()
 
-
 def protect_js(code):
     encoded = base64.b64encode(code).decode()
     return f'eval(atob("{encoded}"));'.encode()
-
 
 # ================= MENU =================
 
@@ -77,35 +70,24 @@ def menu():
         [InlineKeyboardButton("🔐 Encrypt", callback_data="encrypt")],
         [InlineKeyboardButton("🔓 Decrypt", callback_data="decrypt")],
         [InlineKeyboardButton("🛡 Protect Code", callback_data="protect")],
-        [InlineKeyboardButton("ℹ️ About", callback_data="about")]
     ])
 
-
-# ================= START =================
+# ================= HANDLERS =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     user_mode[uid] = "encrypt"
-
     await update.message.reply_text(
-        "👋 Welcome to EncryptXnoob 🔐",
+        "👋 EncryptXnoob Ready 🔐",
         reply_markup=menu()
     )
 
-
-# ================= BUTTONS =================
-
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     q = update.callback_query
     uid = q.from_user.id
     await q.answer()
-
     user_mode[uid] = q.data
     await q.edit_message_text(f"{q.data.upper()} MODE ENABLED")
-
-
-# ================= TEXT =================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -117,23 +99,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cipher = get_cipher(uid)
     mode = user_mode.get(uid, "encrypt")
 
-    try:
-        if mode == "decrypt":
+    if mode == "decrypt":
+        try:
             text = cipher.decrypt(update.message.text.encode()).decode()
             await update.message.reply_text(text)
-        else:
-            enc = cipher.encrypt(update.message.text.encode()).decode()
-            await update.message.reply_text(enc)
-    except:
-        await update.message.reply_text("Operation failed")
-
-
-# ================= FILE =================
+        except:
+            await update.message.reply_text("Decrypt failed")
+    else:
+        enc = cipher.encrypt(update.message.text.encode()).decode()
+        await update.message.reply_text(enc)
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     uid = update.message.from_user.id
-
     doc = update.message.document
     file = await doc.get_file()
 
@@ -160,23 +138,35 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f.write(result)
 
     await update.message.reply_document(InputFile(name))
-
     os.remove(path)
     os.remove(name)
 
+# ================= TELEGRAM APP =================
 
-# ================= TELEGRAM =================
+telegram_app = ApplicationBuilder().token(TOKEN).build()
 
-app = ApplicationBuilder().token(TOKEN).build()
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CallbackQueryHandler(buttons))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+telegram_app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(buttons))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+# ================= FLASK WEBHOOK =================
 
+web = Flask(__name__)
 
-# ================= RUN =================
+@web.route("/")
+def home():
+    return "EncryptXnoob Alive"
+
+@web.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    telegram_app.update_queue.put_nowait(update)
+    return "OK"
+
+# ================= START =================
 
 if __name__ == "__main__":
-    print("EncryptXnoob Running on Railway 🚀")
-    app.run_polling()
+    telegram_app.bot.set_webhook(f"{APP_URL}/{TOKEN}")
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
