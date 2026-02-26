@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import base64
 import zlib
 import random
@@ -28,15 +29,32 @@ from cryptography.fernet import Fernet
 
 TOKEN = os.environ.get("BOT_TOKEN")
 
-# ================= USER SYSTEM =================
+KEY_FILE = "keys.json"
 
-user_keys = {}
+# ================= LOAD KEYS =================
+
+def load_keys():
+    if os.path.exists(KEY_FILE):
+        with open(KEY_FILE, "r") as f:
+            data = json.load(f)
+            return {int(k): v.encode() for k, v in data.items()}
+    return {}
+
+def save_keys():
+    with open(KEY_FILE, "w") as f:
+        json.dump({k: v.decode() for k, v in user_keys.items()}, f)
+
+user_keys = load_keys()
 user_mode = {}
 user_time = {}
+
+
+# ================= USER CIPHER =================
 
 def get_cipher(uid):
     if uid not in user_keys:
         user_keys[uid] = Fernet.generate_key()
+        save_keys()
     return Fernet(user_keys[uid])
 
 
@@ -55,7 +73,8 @@ def anti_spam(uid):
 def protect_python(code):
     compressed = zlib.compress(code)
     encoded = base64.b64encode(compressed).decode()
-    fake = "".join(random.choice(string.ascii_letters) for _ in range(18))
+
+    fake = "".join(random.choice(string.ascii_letters) for _ in range(16))
 
     protected = f"""
 import base64,zlib
@@ -93,13 +112,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ================= BUTTONS =================
+# ================= BUTTON =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     q = update.callback_query
     uid = q.from_user.id
+
     await q.answer()
+
+    if q.data == "about":
+        await q.edit_message_text(
+            "EncryptXnoob Bot\nEncrypt • Decrypt • Protect Code"
+        )
+        return
 
     user_mode[uid] = q.data
     await q.edit_message_text(f"{q.data.upper()} MODE ENABLED")
@@ -125,7 +151,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             enc = cipher.encrypt(update.message.text.encode()).decode()
             await update.message.reply_text(enc)
     except:
-        await update.message.reply_text("Operation failed")
+        await update.message.reply_text("❌ Operation failed")
 
 
 # ================= FILE =================
@@ -137,35 +163,51 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     file = await doc.get_file()
 
-    path = doc.file_name
-    await file.download_to_drive(path)
+    temp_name = f"temp_{uid}_{doc.file_name}"
 
-    with open(path, "rb") as f:
+    await file.download_to_drive(temp_name)
+
+    with open(temp_name, "rb") as f:
         data = f.read()
 
     mode = user_mode.get(uid, "encrypt")
     cipher = get_cipher(uid)
 
-    if mode == "protect":
-        result = protect_python(data) if path.endswith(".py") else protect_js(data)
-        name = "protected"
-    elif mode == "decrypt":
-        result = cipher.decrypt(data)
-        name = "decrypted"
-    else:
-        result = cipher.encrypt(data)
-        name = "encrypted"
+    try:
 
-    with open(name, "wb") as f:
-        f.write(result)
+        if mode == "protect":
+            if temp_name.endswith(".py"):
+                result = protect_python(data)
+            else:
+                result = protect_js(data)
+            name = "protected"
 
-    await update.message.reply_document(InputFile(name))
+        elif mode == "decrypt":
+            result = cipher.decrypt(data)
+            name = "decrypted"
 
-    os.remove(path)
-    os.remove(name)
+        else:
+            result = cipher.encrypt(data)
+            name = "encrypted"
+
+        out_file = f"{name}_{uid}"
+
+        with open(out_file, "wb") as f:
+            f.write(result)
+
+        await update.message.reply_document(InputFile(out_file))
+
+    except:
+        await update.message.reply_text("❌ File operation failed")
+
+    finally:
+        if os.path.exists(temp_name):
+            os.remove(temp_name)
+        if os.path.exists(out_file):
+            os.remove(out_file)
 
 
-# ================= TELEGRAM =================
+# ================= RUN BOT =================
 
 app = ApplicationBuilder().token(TOKEN).build()
 
@@ -175,8 +217,6 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
 
-# ================= RUN =================
-
 if __name__ == "__main__":
-    print("EncryptXnoob Running on Railway 🚀")
+    print("EncryptXnoob Running on Render 🚀")
     app.run_polling()
